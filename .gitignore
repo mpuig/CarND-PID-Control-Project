@@ -3,3 +3,5 @@ build
 tags
 .editorconfig
 /venv
+/venv
+.ipynb_checkpoints

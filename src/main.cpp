@@ -28,18 +28,39 @@ std::string hasData(std::string s) {
   return "";
 }
 
-int main()
+int main(int argc, const char *argv[])
 {
   uWS::Hub h;
 
   PID pid;
   PID pid_throttle;
-  // TODO: Initialize the pid variable.
-  //pid.Init(0.09, 0.000001, 0.9);
-  pid.Init(0.1, 0.001, 4.0);
-  pid_throttle.Init(0.1, 0.001, 4.0);
 
-  h.onMessage([&pid_throttle, &pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
+  double kp = 0.1;
+  double ki = 0.001;
+  double kd = 4.0;
+  int max_iterations = 0;
+  int iteration = 0;
+  double error = 0;
+
+  if (argc == 4 ) {
+    kp = strtod(argv[1], NULL);
+    ki = strtod(argv[2], NULL);
+    kd = strtod(argv[3], NULL);
+  } else if (argc == 5) {
+    kp = strtod(argv[1], NULL);
+    ki = strtod(argv[2], NULL);
+    kd = strtod(argv[3], NULL);
+    max_iterations = strtod(argv[4], NULL);
+  } else {
+    std::cout << "Usage without twiddle ./pid kp ki kd" << std::endl;
+    std::cout << "Usage with twiddle ./pid kp ki kd iterations" << std::endl;
+    return -1 ;
+  }
+
+  pid.Init(kp, ki, kd);
+  pid_throttle.Init(kp, ki, kd);
+
+  h.onMessage([&max_iterations, &error, &iteration, &pid, &pid_throttle](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -71,16 +92,36 @@ int main()
           pid_throttle.UpdateError(fabs(speed_goal - speed));
 
           double throttle = fabs(pid.TotalError());
+          throttle = std::max(0.3, throttle);
+
           if (speed > speed_goal) {
             throttle = 0;
           }
           throttle = throttle / 10 * speed_goal;
 
-          std::cout << "CTE: " << cte
+          // it twiddle active
+          if (max_iterations > 0) {
+              iteration++;
+              error += fabs(cte);
+              /*
+              if (fabs(cte) > 10) {
+                error += (max_iterations - iteration) * ;
+              } */
+              if ((iteration > max_iterations) || (fabs(cte) > 10)) {
+                error /= iteration;
+                std::cout.setf(std::ios::fixed);
+                std::cout << "Error: " << error << std::endl ;
+                std::string reset_msg = "42[\"reset\", {}]";
+                ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
+                exit(0);
+              }
+          } else {
+            std::cout << "CTE: " << cte
                     << " Speed: " << speed
                     << " Steering: " << steer_value
                     << " Throttle: " << throttle
                     << std::endl;
+          }
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
